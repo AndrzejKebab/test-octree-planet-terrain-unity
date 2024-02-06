@@ -7,89 +7,97 @@ using Unity.Burst;
 [BurstCompile]
 public struct ChunkJob : IJob
 {
-    public Bounds bounds;
-    public Mesh.MeshDataArray meshDataArray;
-    public float3 position;
+    [ReadOnly] public float3 position;
+    [WriteOnly] public NativeArray<Vertex> vertices;
+    [WriteOnly] public NativeArray<ushort> indices;
 
     public void Execute()
     {
-        int indiceCount = Chunk.Count * 6 * 6; // 6 indicies per quad * 6 quads
-        int vertexCount = Chunk.Count * 4 * 6; // 4 vertices per quad * 6 quads
+        const int indicesCount = Chunk.Count * 4 * 6; // 4 indices per quad * 6 quads
+        const int vertexCount = Chunk.Count * 4 * 6; // 4 vertices per quad * 6 quads
 
-        var indices = new NativeArray<uint>(indiceCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-        var vertices = new NativeArray<float3>(vertexCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-        var normals = new NativeArray<float3>(vertexCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+        vertices = new NativeArray<Vertex>(vertexCount, Allocator.TempJob);
+        indices = new NativeArray<ushort>(indicesCount, Allocator.TempJob);
 
-        FastNoiseLite noise = new FastNoiseLite();
+        FastNoiseLite noise = new();
         noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         noise.SetFrequency(0.01f);
         noise.SetSeed(2376);
 
-        int vertexOffset = 0;
-        int indiceOffset = 0;
+        ushort vertexOffset = 0;
 
-        for (int i = 0; i < Chunk.Count; i++)
+        for (var i = 0; i < Chunk.Count; i++)
         {
-            int3 index = IndexUtilities.IndexToXyz(i, Chunk.Resolution, Chunk.Height);
+            var index = IndexUtilities.IndexToXyz(i, Chunk.Width, Chunk.Height);
 
             // if we are a solid block
-            if (!IsAir(index.x, index.y, index.z, in noise))
+            if (IsAir(index.x, index.y, index.z, in noise)) continue;
+
+            // local mesh position of the voxel
+            var pos = new half4((half)index.x, (half)index.y, (half)index.z, (half)0);
+
+            for (var side = 0; side < 6; side++)
             {
-                // local mesh position of the voxel
-                float3 pos = index;
+                if (!IsAir(index.x + Tables.FaceChecks[side].x,
+                        index.y + Tables.FaceChecks[side].y,
+                        index.z + Tables.FaceChecks[side].z, in noise)) continue;
+                
+                NativeArray<half4> faceVertices = GetFaceVertices(side, pos);
 
-                for (int side = 0; side < 6; side++)
-                {
-                    if (IsAir(index.x + Tables.NeighborOffset[side].x, index.y + Tables.NeighborOffset[side].y, index.z + Tables.NeighborOffset[side].z, in noise))
-                    {
-                        // vertices
-                        vertices[vertexOffset + 0] = Tables.Vertices[Tables.BuildOrder[side][0]] + pos;
-                        vertices[vertexOffset + 1] = Tables.Vertices[Tables.BuildOrder[side][1]] + pos;
-                        vertices[vertexOffset + 2] = Tables.Vertices[Tables.BuildOrder[side][2]] + pos;
-                        vertices[vertexOffset + 3] = Tables.Vertices[Tables.BuildOrder[side][3]] + pos;
+                sbyte4 normal = new((sbyte)Tables.FaceChecks[side].x,
+                    (sbyte)Tables.FaceChecks[side].y,
+                    (sbyte)Tables.FaceChecks[side].z,
+                    0);
+                Color32 tangent = new((byte)normal.x, (byte)normal.y, (byte)normal.z, 0);
 
-                        // normals
-                        normals[vertexOffset + 0] = Tables.Normals[side];
-                        normals[vertexOffset + 1] = Tables.Normals[side];
-                        normals[vertexOffset + 2] = Tables.Normals[side];
-                        normals[vertexOffset + 3] = Tables.Normals[side];
+                vertices[vertexOffset + 0] = new Vertex(faceVertices[0], normal, tangent, new half2((half)0,(half)0));
+                vertices[vertexOffset + 1] = new Vertex(faceVertices[1], normal, tangent, new half2((half)0,(half)1));
+                vertices[vertexOffset + 2] = new Vertex(faceVertices[2], normal, tangent, new half2((half)1,(half)0));
+                vertices[vertexOffset + 3] = new Vertex(faceVertices[3], normal, tangent, new half2((half)1,(half)1));
 
-                        // indices
-                        indices[indiceOffset + 0] = (uint)vertexOffset + 0;
-                        indices[indiceOffset + 1] = (uint)vertexOffset + 1;
-                        indices[indiceOffset + 2] = (uint)vertexOffset + 2;
-                        indices[indiceOffset + 3] = (uint)vertexOffset + 2;
-                        indices[indiceOffset + 4] = (uint)vertexOffset + 1;
-                        indices[indiceOffset + 5] = (uint)vertexOffset + 3;
+                // indices
+                indices[vertexOffset + 0] = vertexOffset;
+                indices[vertexOffset + 1] = (ushort)(vertexOffset + 1);
+                indices[vertexOffset + 2] = (ushort)(vertexOffset + 2);
+                indices[vertexOffset + 3] = (ushort)(vertexOffset + 3);
 
-                        // increment by 4 because we only added 4 vertices
-                        vertexOffset += 4;
-
-                        // increment by 6 because we added 6 int's to our triangles array
-                        indiceOffset += 6;
-                    }
-                }
+                // increment by 4 because we only added 4 vertices
+                faceVertices.Dispose();
+                vertexOffset += 4;
             }
         }
 
-        // slice of valid data (otherwise mesh data is uneccessarily large)
-        var indicesSlice = new NativeArray<uint>(indiceOffset, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-        indices.Slice(0, (int)indiceOffset).CopyTo(indicesSlice);
-        var verticesSlice = new NativeArray<float3>(vertexOffset, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-        vertices.Slice(0, (int)vertexOffset).CopyTo(verticesSlice);
-        var normalsSlice = new NativeArray<float3>(vertexOffset, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-        normals.Slice(0, (int)vertexOffset).CopyTo(normalsSlice);
-
-        // apply the mesh to the meshDataArray
-        MeshingUtility.ApplyMesh(ref meshDataArray, ref indicesSlice, ref verticesSlice, ref normalsSlice, ref bounds);
+        //slice of valid data (otherwise mesh data is unnecessarily large)
+        //var indicesSlice =
+        //    new NativeArray<ushort>(vertexOffset, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+        //indices.Slice(0, vertexOffset).CopyTo(indicesSlice);
+        //var verticesSlice =
+        //    new NativeArray<Vertex>(vertexOffset, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+        //vertices.Slice(0, vertexOffset).CopyTo(verticesSlice);
     }
 
-    public bool IsAir(int x, int y, int z, in FastNoiseLite noise)
+    private bool IsAir(int x, int y, int z, in FastNoiseLite noise)
     {
         // the voxels position in world coordinates
-        float3 worldVoxelPosition = new float3(x, y, z) + position;
+        var worldVoxelPosition = new float3(x, y, z) + position;
 
-        float height = ((noise.GetNoise(worldVoxelPosition.x, worldVoxelPosition.z) + 1f) / 2f) * (Chunk.Height / 2);
+        var height = ((noise.GetNoise(worldVoxelPosition.x, worldVoxelPosition.z) + 1f) / 2f) * (Chunk.Height / 2);
         return worldVoxelPosition.y > height;
+    }
+
+    private static NativeArray<half4> GetFaceVertices(int faceIndex, half4 pos)
+    {
+        var faceVertices = new NativeArray<half4>(4, Allocator.TempJob);
+
+        for (byte i = 0; i < 4; i++)
+        {
+            var index = Tables.VoxelTriangles[(faceIndex * 4) + i];
+            faceVertices[i] = new half4((half)(Tables.Vertices[index].x + pos.x),
+                (half)(Tables.Vertices[index].y + pos.y),
+                (half)(Tables.Vertices[index].z + pos.z),
+                (half)0);
+        }
+
+        return faceVertices;
     }
 }

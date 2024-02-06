@@ -72,7 +72,7 @@ crashlytics-build.properties
 [Aa]ssets/[Ss]treamingAssets/aa.meta
 [Aa]ssets/[Ss]treamingAssets/aa/*
 
-## OS FILES
+# Custom
 .DS_Store
 .idea*
-[Aa]ssets/[Pp]lanet/*
+[Aa]ssets/[Pp]lanet

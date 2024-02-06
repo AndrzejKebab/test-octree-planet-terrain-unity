@@ -1,43 +1,35 @@
 using System.Runtime.CompilerServices;
 using Unity.Collections;
-using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
-using Unity.Burst;
-using Unity.Collections.LowLevel.Unsafe;
 
 public static class MeshingUtility
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void ApplyMesh(ref Mesh.MeshDataArray meshDataArray, ref NativeArray<uint> indices, ref NativeArray<float3> vertices, ref NativeArray<float3> normals, ref Bounds bounds, IndexFormat indexFormat = IndexFormat.UInt32)
+    public static void ApplyMesh(Mesh meshData, NativeArray<Vertex> vertices, NativeArray<ushort> indices,
+        Bounds bounds, IndexFormat indexFormat = IndexFormat.UInt16)
     {
-        Mesh.MeshData meshData = meshDataArray[0];
-
         // Describe mesh data layout
-        int vertexAttributeCount = 2;
-        var vertexAttributes = new NativeArray<VertexAttributeDescriptor>(
-            vertexAttributeCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory
-        );
-        vertexAttributes[0] = new VertexAttributeDescriptor(
-            VertexAttribute.Position, dimension: 3, stream: 0
-        );
-        vertexAttributes[1] = new VertexAttributeDescriptor(
-            VertexAttribute.Normal, dimension: 3, stream: 1
-        );
+        var vertexAttributes = new NativeArray<VertexAttributeDescriptor>(4, Allocator.Temp,
+            NativeArrayOptions.UninitializedMemory
+        )
+        {
+            [0] = new(VertexAttribute.Position, VertexAttributeFormat.Float16, 4),
+            [1] = new(VertexAttribute.Normal, VertexAttributeFormat.Float16, 4),
+            [2] = new(VertexAttribute.Tangent, VertexAttributeFormat.UNorm8, 4),
+            [3] = new(VertexAttribute.TexCoord0, VertexAttributeFormat.Float16, 2)
+        };
+
         meshData.SetVertexBufferParams(vertices.Length, vertexAttributes);
+        meshData.SetVertexBufferData(vertices, 0, 0, vertices.Length);
 
-        // Set Vertex data
-        meshData.GetVertexData<float3>(0).CopyFrom(vertices);
-        meshData.GetVertexData<float3>(1).CopyFrom(normals);
-
-        // Set Indice data
+        // Set Indices data
         meshData.SetIndexBufferParams(indices.Length, indexFormat);
-        NativeArray<uint> triangleIndices = meshData.GetIndexData<uint>();
-        triangleIndices.CopyFrom(indices);
+        meshData.SetIndexBufferData(indices, 0, 0, indices.Length);
 
-        // Set submesh
+        // Set sub mesh
         meshData.subMeshCount = 1;
-        meshData.SetSubMesh(0, new SubMeshDescriptor(0, indices.Length)
+        meshData.SetSubMesh(0, new SubMeshDescriptor(0, indices.Length, MeshTopology.Quads)
         {
             bounds = bounds,
             vertexCount = vertices.Length,

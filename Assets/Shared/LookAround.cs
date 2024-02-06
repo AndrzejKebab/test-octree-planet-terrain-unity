@@ -5,9 +5,8 @@ using UnityEngine;
 public class LookAround : MonoBehaviour
 {
     public new Transform camera;
-
     private float speed = 1f;
-    private float anglePerSecond = 1f;
+    private const float anglePerSecond = 1f;
 
     private void Start()
     {
@@ -16,25 +15,20 @@ public class LookAround : MonoBehaviour
 
     public void Update()
     {
-        float forward = Input.GetAxis("Vertical");
-        float right = Input.GetAxis("Horizontal");
-        float up = Input.GetAxis("UpDown");
+        var forward = Input.GetAxis("Vertical");
+        var right = Input.GetAxis("Horizontal");
+        var up = Input.GetAxis("UpDown");
 
-        if (Input.GetButton("Fire3"))
-        {
-            speed = 20;
-        }
-        else
-        {
-            speed = 1;
-        }
+        speed = Input.GetButton("Fire3") ? 20 : 1;
 
-        transform.position += camera.forward * forward * speed;
-        transform.position += transform.up * up * speed;
-        transform.position += transform.right * right * speed;
+        var position = transform.position;
+        position += camera.forward * (forward * speed);
+        position += transform.up * (up * speed);
+        position += transform.right * (right * speed);
+        transform.position = position;
 
-        float rotateY = Input.GetAxis("Mouse X") != 0f ? Mathf.Sign(Input.GetAxis("Mouse X")) : 0f;
-        float rotateX = Input.GetAxis("Mouse Y") != 0f ? Mathf.Sign(Input.GetAxis("Mouse Y")) : 0f;
+        var rotateY = Input.GetAxis("Mouse X") != 0f ? Mathf.Sign(Input.GetAxis("Mouse X")) : 0f;
+        var rotateX = Input.GetAxis("Mouse Y") != 0f ? Mathf.Sign(Input.GetAxis("Mouse Y")) : 0f;
 
         // we look side to side
         transform.Rotate(new Vector3(0, rotateY * anglePerSecond));

@@ -7,57 +7,58 @@ using UnityEngine;
 
 public class Minecraft : MonoBehaviour
 {
-    [SerializeField] public Material Material;
-    [SerializeField] public int Distance = 4;
-    [SerializeField] public new Camera camera;
+    [field:SerializeField] public Material Material { get; private set; }
+    [SerializeField] private int distance = 4;
+    [SerializeField] private new Camera camera;
 
-    public Dictionary<int3, Chunk> blocks = new Dictionary<int3, Chunk>();
-    public List<JobCompleter> toComplete = new List<JobCompleter>();
+    private readonly Dictionary<int3, Chunk> chunks = new();
+    public readonly List<JobCompleter> ToComplete = new();
 
-    public Plane[] frustrum;
+    public Plane[] Frustrum;
 
-    void Start()
+    private void Start()
     {
-        frustrum = GeometryUtility.CalculateFrustumPlanes(camera);
-        for (int x = 0; x < Distance; x++)
+        Frustrum = GeometryUtility.CalculateFrustumPlanes(camera);
+        for (var x = 0; x < distance; x++)
         {
-            for (int z = 0; z < Distance; z++)
+            for (var z = 0; z < distance; z++)
             {
-                int3 key = new int3(x, 0, z);
+                int3 key = new(x, 0, z);
                 var chunk = new Chunk(this, key);
-                blocks.Add(key, chunk);
+                chunks.Add(key, chunk);
             }
         }
     }
 
-    void Update()
+    private void Update()
     {
-        frustrum = GeometryUtility.CalculateFrustumPlanes(camera);
-        if (toComplete.Count > 0)
+        Frustrum = GeometryUtility.CalculateFrustumPlanes(camera);
+        if (ToComplete.Count > 0)
         {
-            var w = new Stopwatch();
-            w.Start();
-            NativeArray<JobHandle> jobHandles = new NativeArray<JobHandle>(toComplete.Count, Allocator.Temp);
-            for (int i = 0; i < toComplete.Count; i++)
+            var timer = new Stopwatch();
+            timer.Start();
+            NativeArray<JobHandle> jobHandles = new(ToComplete.Count, Allocator.Temp);
+            for (var i = 0; i < ToComplete.Count; i++)
             {
-                jobHandles[i] = toComplete[i].schedule();
+                jobHandles[i] = ToComplete[i].Schedule();
             }
+
             JobHandle.CompleteAll(jobHandles);
             jobHandles.Dispose();
 
-            for (int i = 0; i < toComplete.Count; i++)
+            for (var i = 0; i < ToComplete.Count; i++)
             {
-                toComplete[i].onComplete();
+                ToComplete[i].OnComplete();
             }
 
-            toComplete.Clear();
-            w.Stop();
-            UnityEngine.Debug.Log(w.ElapsedMilliseconds + "ms");
+            ToComplete.Clear();
+            timer.Stop();
+            UnityEngine.Debug.Log(timer.ElapsedMilliseconds + "ms");
         }
 
-        foreach (var chunk in blocks.Values)
+        foreach (var chunk in chunks.Values)
         {
-            if (GeometryUtility.TestPlanesAABB(frustrum, chunk.boundary))
+            if (GeometryUtility.TestPlanesAABB(Frustrum, chunk.Boundary))
             {
                 chunk.Draw();
             }
@@ -66,18 +67,12 @@ public class Minecraft : MonoBehaviour
 
     private void OnDrawGizmos()
     {
-        if (blocks.Count <= 0) return;
-        foreach (var chunk in blocks.Values)
+        if (chunks.Count <= 0) return;
+        foreach (var chunk in chunks.Values)
         {
-            if (GeometryUtility.TestPlanesAABB(frustrum, chunk.boundary))
-            {
-                Gizmos.color = Color.blue;
-            }
-            else
-            {
-                Gizmos.color = Color.red;
-            }
-            Gizmos.DrawWireCube(chunk.boundary.center, chunk.boundary.size);
+            Gizmos.color = GeometryUtility.TestPlanesAABB(Frustrum, chunk.Boundary) ? Color.blue : Color.red;
+
+            Gizmos.DrawWireCube(chunk.Boundary.center, chunk.Boundary.size);
         }
     }
 }
